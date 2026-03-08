@@ -1,0 +1,660 @@
+A MANAGER is also an EMPLOYEE, not a separate user type.
+So RBAC allows multiple roles per user
+
+Token	        Lifetime	Storage
+Access Token	10–15 min	Memory / Header
+Refresh Token	7–30 days	HttpOnly Cookie
+
+
+1️⃣ Write auth decision doc (tokens, lifetimes, payload)
+2️⃣ Write RBAC policy object (actions, scopes, roles)
+3️⃣ Implement authenticate() middleware
+4️⃣ Implement can() policy engine
+
+Only after this:
+Controllers, Routes, UI
+
+
+Client
+  |
+  |-- Access Token (15 min, Authorization header)
+  |
+API Gateway / Express
+  |
+  |-- authenticate() middleware
+  |
+Controllers
+  |
+Services
+  |
+Database (Users, UserRole, RefreshToken)
+
+-------------------------------xxxx---------------------------------xxxx--------------------------------xxxx---------------------------------xxxx---------
+
+
+1️⃣ User Registers (Request Access)
+What happens:
+User fills signup form
+
+Account is created with:
+status = PENDING_APPROVAL
+isActive = false
+roles = []
+
+📌 Important
+User cannot login
+Password is already hashed & stored
+This is just a request, not access.
+
+2️⃣ HR/Admin Gets Notified
+How (simple options):
+Dashboard notification
+Pending users list
+(Later) Email notification
+
+HR sees:
+Name
+Email
+Requested department (optional)
+
+3️⃣ HR/Admin Approves & Onboards User
+This is the most important step.
+
+HR does: Approves user
+
+Assigns:
+Role(s): EMPLOYEE / MANAGER / ADMIN
+Department / Team
+Designation
+Manager (if employee)
+
+Backend actions:
+User.status   → ACTIVE
+User.isActive → true
+UserRole     → created
+Employee     → created (if applicable)
+
+
+📌 HR is the source of truth, not the user.
+
+4️⃣ User Can Login (First Login)
+First login rules:
+User can login ONLY if:
+status === ACTIVE
+isActive === true
+
+On first login:User is forced to:change password
+
+Then:
+isFirstLogin = false
+
+This prevents:
+HR-set passwords being reused
+Security leaks
+
+
+🔐 How This Fits Auth + RBAC (Cleanly)
+Authentication checks ONLY:
+if (user.status !== ACTIVE) deny login
+
+Authorization checks:
+Happens after login
+Based on assigned roles
+No mixing. No confusion.
+
+🧪 Edge Cases (Senior Thinking)
+
+You should handle these:
+
+❓ What if HR rejects user?
+status = REJECTED
+User cannot login
+Shown proper message
+
+❓ What if HR disables user later?
+status = DISABLED
+User is logged out
+Refresh tokens revoked
+
+❓ Can HR change roles later?
+
+Yes.
+Update UserRole table
+User gets new permissions on next request
+
+
+❌ What NOT to Do
+
+❌ Don’t auto-assign roles on registration
+❌ Don’t let users choose role
+❌ Don’t allow login before approval
+❌ Don’t mix approval logic into auth middleware
+
+
+.
+
+🧱 PHASE 0 — Mental Model (lock this in your head)
+
+Very simple:
+Auth = Who are you?
+Approval = Are you allowed to exist?
+RBAC = What can you do?
+Business logic = What happens when you do it?
+We will never mix these.
+
+🔐 PHASE 1 — AUTHENTICATION (FOUNDATION)
+✅ 1. Register (DONE)
+User creates account → PENDING_APPROVAL
+
+✅ 2. Login (DONE)
+Only ACTIVE users can login
+
+⏭ 3. Refresh Token
+Keeps user logged in safely
+
+⏭ 4. Logout
+Ends session properly
+
+⏭ 5. authenticate() middleware
+Attaches user identity to every request
+
+👉 After Phase 1
+System knows who the user is, but not what they can do.
+
+🧑‍💼 PHASE 2 — HR / ADMIN APPROVAL (VERY IMPORTANT)
+This is the bridge between auth and RBAC.
+
+⏭ 6. List pending users (HR only)
+HR sees who is waiting for approval
+
+⏭ 7. Approve / Reject user
+HR decides:
+role
+department
+designation
+manager
+
+⏭ 8. Create Employee record (on approval)
+Only for EMPLOYEE / MANAGER
+
+👉 After Phase 2
+Users are officially onboarded.
+
+🛂 PHASE 3 — AUTHORIZATION (RBAC ENGINE)
+⏭ 9. RBAC policy definition
+
+Single source of truth
+
+⏭ 10. can() permission checker
+Checks role + scope
+
+⏭ 11. Ownership checks
+SELF / TEAM / ORG
+
+⏭ 12. State checks
+PENDING / APPROVED / REJECTED
+
+👉 After Phase 3
+System enforces rules correctly.
+
+🏢 PHASE 4 — BUSINESS APIs (HRMS)
+⏭ 13. Leave APIs
+Apply → Approve → Final approve
+
+⏭ 14. Attendance APIs
+Mark → View → Override
+
+⏭ 15. Audit logs
+Every sensitive action tracked
+
+
+---------------------------------xxxxxxxxxxxx----------------------------xxxxxxxxxxxxx-------------------------------------
+
+
+🔄 REFRESH TOKEN FLOW (PLAIN ENGLISH)
+1️⃣ User logs in
+2️⃣ Backend gives:
+
+access token (15 min)
+refresh token (30 days, cookie)
+
+3️⃣ Access token expires
+4️⃣ Frontend calls /auth/refresh
+5️⃣ Backend:
+
+checks refresh token
+issues new access token
+rotates refresh token (important)
+User never notices anything.
+
+
+🔐 IMPORTANT SECURITY RULE (SENIOR LEVEL)
+Refresh tokens are ONE-TIME USE
+
+Every refresh:
+old refresh token → invalid
+new refresh token → issued
+This prevents token theft attacks.
+
+-----------------------------xxxxxx------------------------xxxxxxxx--------------------------xxxxxxxxx-------------------------------xxxxxxxxxxxx----------------
+
+🧠 What “logout” REALLY means (simple words)
+
+Logout does NOT mean:
+deleting access token (you can’t)
+trusting frontend to “forget” it
+Logout ACTUALLY means:
+kill the refresh token
+so no new access token can ever be issued
+
+After that:
+access token dies naturally in 15 minutes
+user is effectively logged out everywhere
+
+
+🔄 LOGOUT FLOW (PLAIN ENGLISH)
+1️⃣ User clicks logout
+2️⃣ Frontend calls /auth/logout
+3️⃣ Backend:
+reads refresh token from cookie
+finds it in DB
+marks it as revoked
+clears cookie
+4️⃣ Done ✅
+
+
+-------------------------------xxxxxxxxxxxx----------------------xxxxxxxxxxxxxxxx-------------------------xxxxxxxxxxxx----------------------------------
+
+🔄 FLOW (PLAIN ENGLISH)
+
+1️⃣ Client calls any protected API
+2️⃣ Sends access token in header
+3️⃣ authenticate():
+checks token exists
+checks token is valid
+extracts userId + roles
+4️⃣ Attaches user info to request
+5️⃣ Controller uses req.user
+
+
+-------------------------------xxxxxxxxxxxx----------------------xxxxxxxxxxxxxxxx-------------------------xxxxxxxxxxxx----------------------------------
+
+🧠 Senior Developer Rule of Thumb
+
+If breaking this feature could:
+leak data
+grant extra permissions
+bypass approval
+
+👉 WRITE A TEST
+Auth absolutely qualifies.
+
+
+-------------------------------xxxxxxxxxxxx----------------------xxxxxxxxxxxxxxxx-------------------------xxxxxxxxxxxx----------------------------------
+HR / ADMIN APPROVAL APIs (VERY IMPORTANT)
+
+🧠 WHAT THIS STEP DOES (IN SIMPLE WORDS)
+
+Right now:
+Users can register
+But they are not allowed to login
+
+HR/Admin will now:
+See pending users
+Approve or reject them
+Assign role (HR / Manager / Employee)
+Create employee record (if needed)
+
+
+After this:
+👉 User becomes ACTIVE
+👉 User can login
+👉 RBAC starts working
+
+
+🔁 OVERALL FLOW (PLAIN ENGLISH)
+1️⃣ User registers → PENDING_APPROVAL
+2️⃣ HR opens “Pending Users”
+3️⃣ HR clicks Approve
+4️⃣ System:
+activates user
+assigns role(s)
+creates employee record
+5️⃣ User logs in normally
+
+🔐 WHO CAN DO THIS?
+Only:
+HR/ADMIN
+So these APIs will be:
+protected by authenticate()
+later protected by RBAC (ADMIN only)
+
+
+📌 APIs WE WILL CREATE IN THIS STEP
+API	                    Purpose
+GET /hr/pending-users	View users waiting for approval
+POST /hr/approve-user	Approve & onboard user
+POST /hr/reject-user	Reject user
+
+
+-------------------------------xxxxxxxxxxxx----------------------xxxxxxxxxxxxxxxx-------------------------xxxxxxxxxxxx----------------------------------
+
+AUTHORIZATION / RBAC (ROLE-BASED ACCESS CONTROL)
+🧠 First: Understand RBAC in SIMPLE words
+
+RBAC is NOT:
+if (role === "ADMIN") everywhere ❌
+different APIs per role ❌
+
+RBAC IS:
+A central rulebook that answers
+“Can this user perform this action in this situation?”
+
+
+🧩 THE CORE IDEA (REMEMBER THIS)
+Authorization =
+Role + Ownership + State
+
+Example:
+Manager role ✅
+Leave belongs to manager’s team ✅
+Leave is still pending ✅
+
+👉 Only then approval is allowed.
+
+
+🔑 WHAT WE WILL BUILD IN THIS STEP
+We will build 4 things:
+1️⃣ Action definitions
+2️⃣ RBAC policy (rules)
+3️⃣ can() permission checker
+4️⃣ How to use it in real APIs
+
+Once this is done, RBAC is finished forever.
+
+-------------------------------xxxxxxxxxxxx----------------------xxxxxxxxxxxxxxxx-------------------------xxxxxxxxxxxx----------------------------------
+
+LEAVE MANAGEMENT (FINAL, REAL-WORLD DESIGN)
+🧠 First: Understand Leave Flow in SIMPLE words
+
+Leave is not one action. It’s a process.
+
+1️⃣ Employee applies leave
+2️⃣ Manager reviews & approves/rejects
+3️⃣ HR does final approval / override
+4️⃣ System updates state
+
+Everything revolves around state changes.
+
+
+🔄 LEAVE STATES (REMEMBER THIS)
+From your schema:
+PENDING → MANAGER_APPROVED → HR_APPROVED
+        → REJECTED
+
+
+Rules:
+Employee → only creates
+Manager → only acts on PENDING
+HR/Admin → can act anytime
+
+
+🔐 WHO CAN DO WHAT (RBAC + LOGIC)
+Action	           Who
+Apply leave	       Employee
+Approve leave	   Manager
+Final approve	   HR/Admin
+Reject	           Manager / HR
+Override	       HR/Admin
+
+RBAC decides can you try
+Business logic decides can you succeed
+
+
+-------------------------------xxxxxxxxxxxx----------------------xxxxxxxxxxxxxxxx-------------------------xxxxxxxxxxxx----------------------------------
+Audit log = “who did what, on which record, and when”
+
+❓ Why do we need audit logs in an HRMS?
+Because HRMS is a sensitive system.
+
+
+Without audit logs:
+Manager says: “I never approved this leave”
+HR says: “System auto-approved”
+Employee says: “Someone changed my data”
+👉 No proof. No accountability. Big problem.
+
+With audit logs:
+You can prove exactly what happened
+
+🔍 What actions should be audited?
+Not everything. Only important actions.
+
+✅ MUST audit
+HR approves / rejects user
+Manager approves / rejects leave
+HR overrides leave
+Attendance override
+Role changes
+User disable / enable
+
+❌ No need to audit
+Viewing data
+Login success
+Fetching lists
+
+🧱 How audit logs look in DB (simple)
+You already had this table in your schema 👇
+
+AuditLog
+--------------------------------
+id
+entity        (LEAVE, USER, ATTENDANCE)
+entityId      (which record)
+action        (APPROVED, REJECTED, OVERRIDDEN)
+performedBy   (who did it)
+createdAt
+
+
+That’s it. No magic.
+
+🛠 How audit logs are used (simple flow)
+Example: Manager approves leave
+
+When manager approves:
+Update leave status
+Insert audit log
+Both happen together.
+
+
+We will add audit logs in transactions, so data + log are always in sync.
+1️⃣ Audit HR APPROVE USER
+2️⃣ Audit HR REJECT USER
+3️⃣ Audit MANAGER LEAVE APPROVAL / REJECTION
+4️⃣ Audit HR LEAVE FINAL APPROVAL / OVERRIDE
+
+
+Route
+  ↓
+Controller   ← RBAC & request-level authorization
+  ↓
+Service      ← Pure business logic
+  ↓
+Database
+
+
+authenticate → Who are you?
+RBAC (can()) → Are you allowed to do this?
+So order is always:
+
+authenticate
+   ↓
+RBAC check
+   ↓
+controller logic
+
+
+‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️
+
+🧑‍💼 User Lifecycle
+
+User registers → PENDING_APPROVAL
+HR approves user
+Roles assigned
+Employee record created
+User logs in
+First login → password change required
+Full access granted
+
+
+🛂 Authorization (RBAC)
+Authorization is enforced at controller level.
+
+Components
+    actions.js — all allowed actions
+    scopes.js — SELF / TEAM / ORG
+    rbac.policy.js — permission rules
+    can() — permission checker
+
+Rule => Authorization = Role + Ownership + State
+
+
+🌴 Leave Management
+Leave States
+PENDING → MANAGER_APPROVED → HR_APPROVED
+        → REJECTED
+
+Permissions
+Employee → Apply leave
+Manager → Approve team leave
+HR → Final approval / override
+
+🧾 Audit Logs
+All sensitive actions are logged:
+User approval / rejection
+Leave approvals
+Overrides
+
+Audit log stores:
+Entity
+Action
+Performed by
+Timestamp
+
+🧱 Layered Architecture
+Routes
+  ↓
+authenticate middleware
+  ↓
+Controller (RBAC checks)
+  ↓
+Service (business logic)
+  ↓
+Database
+
+🧠 Design Principles
+Services are framework-agnostic
+Controllers handle authorization
+Transactions ensure consistency
+No role logic in frontend
+Security over convenience
+
+
+
+What can change in the future (REALISTIC EXPECTATIONS)
+Even in real companies, some things evolve, but notice the difference between:
+
+🔧 Configuration changes (normal)
+❌ Architecture changes (rare & painful)
+
+🟢 Things that WILL change (and are easy)
+
+These are expected and safe changes:
+
+🔹 A. More roles
+Example:
+FINANCE
+SUPER_ADMIN
+AUDITOR
+✅ No code rewrite
+✅ Just add roles + RBAC rules
+
+🔹 B. More permissions
+Example:
+EXPORT_REPORTS
+VIEW_SALARY
+APPROVE_EXPENSE
+✅ Add new Action constants
+✅ Update RBAC policy
+
+🔹 C. More approval layers
+Example:
+Leave → Manager → HR → Director
+✅ Add new states
+✅ Add new action
+❌ No auth rewrite
+
+🔹 D. Different teams / hierarchy models
+Example:
+Matrix org
+Multiple managers
+
+✅ Changes in business logic, not auth
+❌ RBAC stays untouched
+🔹 E. External integrations
+
+Example:
+SSO
+Payroll
+Biometric systems
+✅ Authentication adapter changes
+❌ Authorization stays the same
+
+
+
+
+ What will NOT change (THIS IS IMPORTANT)
+These things are fundamental and very unlikely to change:
+
+🔒 A. Authentication concept
+Identity via tokens
+Short-lived access tokens
+Refresh token rotation
+This is standard across the industry.
+
+🔐 B. Authorization pattern
+Controller-level RBAC checks
+Service-level business logic
+Ownership + state checks
+This is the correct separation forever.
+
+🧠 C. RBAC model
+Roles
+Actions
+Scopes
+This is flexible enough for future needs.
+
+🧾 D. Audit logging
+Critical actions logged
+Immutable history
+Compliance requires this. It will stay.
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+The Core Problem (say it out loud)
+
+“If every user must be approved by HR,
+then who approves the first HR / ADMIN?”
+
+This is called system bootstrapping.
+
+‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️‼️
+
+routes checked
+
+-> auth - all routes ✅
+-> hr - all routes ✅
+-> weekly off - all routes ✅
+-> leave - all routes ✅
+-> profile - all routes ✅
+-> holidays- all routes ✅
+-> attendance - all routes ✅

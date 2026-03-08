@@ -1,0 +1,286 @@
+// =====================================
+// Prisma Setup
+// =====================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =====================================
+// MASTER TABLES
+// =====================================
+
+model Role {
+  id         Int      @id @default(autoincrement())
+  code       String   @unique // EMPLOYEE, MANAGER, ADMIN
+  name       String
+  createdAt DateTime @default(now())
+
+  userRoles UserRole[]
+}
+
+model Team {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  employees Employee[]
+}
+
+model Designation {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
+
+  employees Employee[]
+}
+
+model Holiday {
+  id        Int      @id @default(autoincrement())
+  date      DateTime @unique
+  name      String
+  createdAt DateTime @default(now())
+  isActive Boolean @default(true)
+  
+  @@index([date])
+}
+
+model WeeklyOffRule {
+  id          Int      @id @default(autoincrement())
+  dayOfWeek   Int      @unique// 0 = Sunday
+  weekNumbers Int[]    // [2,4] → 2nd & 4th Saturday
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  
+  @@index([isActive])
+}
+
+model LeaveType {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique // CL, SL, PL
+  name      String
+  createdAt DateTime @default(now())
+
+  leaves LeaveRequest[]
+}
+
+// =====================================
+// ENUMS
+// =====================================
+
+enum UserStatus {
+  PENDING_APPROVAL
+  ACTIVE
+  REJECTED
+  DISABLED
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  EXITED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  NOT_SPECIFIED
+}
+
+enum AttendanceStatus {
+  PRESENT          // P
+  WFH              // Work from home
+
+  LEAVE_FULL       // L
+  LEAVE_FIRST_HALF // L1
+  LEAVE_SECOND_HALF// L2
+
+  SICK_FULL        // SL
+  SICK_FIRST_HALF  // SL1
+  SICK_SECOND_HALF // SL2
+
+  COMP_OFF         // CL (Compensatory off)
+
+  HOLIDAY
+  WEEKLY_OFF
+}
+
+
+enum LeaveDuration {
+  FULL_DAY
+  FIRST_HALF
+  SECOND_HALF
+}
+
+enum LeaveStatus {
+  PENDING
+  MANAGER_APPROVED
+  HR_APPROVED
+  REJECTED
+  CANCELLED
+}
+
+
+// =====================================
+// CORE USER & RBAC
+// =====================================
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  fullName     String
+  email        String   @unique
+  passwordHash String?
+
+  status       UserStatus @default(PENDING_APPROVAL)
+  isActive     Boolean    @default(false)
+  isFirstLogin Boolean    @default(true)
+  gender        Gender   @default(NOT_SPECIFIED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employee Employee?
+  roles    UserRole[]
+  refreshTokens      RefreshToken[]
+  markedAttendances  Attendance[]   @relation("MarkedAttendance")
+  auditLogs          AuditLog[]
+}
+
+model UserRole {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  roleId     Int
+  assignedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId])
+}
+
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  tokenHash String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revoked   Boolean  @default(false)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+
+// =====================================
+// EMPLOYEE & HIERARCHY
+// =====================================
+
+model Employee {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @unique
+  designationId Int
+  teamId        Int
+  managerId     Int?
+  status        EmployeeStatus @default(ACTIVE)
+  
+
+  createdAt DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id])
+  designation Designation @relation(fields: [designationId], references: [id])
+  team        Team        @relation(fields: [teamId], references: [id])
+
+  manager   Employee?  @relation("ManagerRelation", fields: [managerId], references: [id])
+  reportees Employee[] @relation("ManagerRelation")
+
+  attendance Attendance[]
+  leaves     LeaveRequest[]
+  leaveBalances LeaveBalance[]
+}
+
+// =====================================
+// ATTENDANCE
+// =====================================
+
+model Attendance {
+  id         Int      @id @default(autoincrement())
+  employeeId Int
+  date       DateTime
+  status     AttendanceStatus
+
+  markedById Int
+  markedBy   User @relation("MarkedAttendance", fields: [markedById], references: [id])
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, date])
+  @@index([date])
+}
+
+// =====================================
+// LEAVE MANAGEMENT
+// =====================================
+
+model LeaveRequest {
+  id          Int      @id @default(autoincrement())
+  employeeId  Int
+  leaveTypeId Int
+
+  fromDate DateTime
+  toDate   DateTime
+  duration LeaveDuration
+  status   LeaveStatus @default(PENDING)
+
+  appliedAt DateTime @default(now())
+
+  approvedByManagerId Int?
+  approvedAtManager   DateTime?
+
+  approvedByHrId Int?
+  approvedAtHr   DateTime?
+
+  employee  Employee  @relation(fields: [employeeId], references: [id])
+  leaveType LeaveType @relation(fields: [leaveTypeId], references: [id])
+  @@index([fromDate])
+  @@index([toDate])
+  @@index([status])
+}
+
+model LeaveBalance {
+  id          Int    @id @default(autoincrement())
+  employeeId  Int
+  year        Int
+  casualTotal Int    @default(12)
+  sickTotal   Int    @default(12)
+  casualUsed  Float  @default(0)
+  sickUsed    Float  @default(0)
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, year])
+}
+
+
+// =====================================
+// AUDIT LOG (IMPORTANT FOR SYNC)
+// =====================================
+
+model AuditLog {
+  id            Int      @id @default(autoincrement())
+  entity        String   // "LEAVE", "ATTENDANCE"
+  entityId      Int
+  action        String   // CREATED, APPROVED, REJECTED
+  performedById Int
+  createdAt     DateTime @default(now())
+
+  performedBy User @relation(fields: [performedById], references: [id])
+}
