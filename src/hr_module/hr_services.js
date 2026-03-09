@@ -1,5 +1,8 @@
 import { UserStatus } from "@prisma/client";
 import prisma from "../../db/db.config.js"
+import { createFirstLoginToken } from "../auth_module/auth_utils.js";
+import { accountApprovedTemplate } from "../auth_module/accountApprovedTemplate.js";
+import { sendEmail } from "../auth_module/email_services.js";
 
 export async function fetchPendingUsers() {
   return prisma.user.findMany({
@@ -18,7 +21,9 @@ export async function fetchPendingUsers() {
 
 
 export async function approveUser(data, hrUserId) {
-  return prisma.$transaction(async tx => {
+  console.log(data, "user check")
+  const user = await prisma.$transaction(async tx => {
+
     const user = await tx.user.findUnique({
       where: { id: data.userId }
     });
@@ -29,8 +34,7 @@ export async function approveUser(data, hrUserId) {
       throw new Error("User already processed");
     }
 
-    // 1️⃣ Activate user
-    await tx.user.update({
+    const updatedUser = await tx.user.update({
       where: { id: data.userId },
       data: {
         status: UserStatus.ACTIVE,
@@ -38,7 +42,6 @@ export async function approveUser(data, hrUserId) {
       }
     });
 
-    // 2️⃣ Assign roles
     const roles = await tx.role.findMany({
       where: { code: { in: data.roles } }
     });
@@ -52,7 +55,6 @@ export async function approveUser(data, hrUserId) {
       });
     }
 
-    // 3️⃣ Create Employee record (if EMPLOYEE or MANAGER)
     if (data.roles.includes("EMPLOYEE") || data.roles.includes("MANAGER")) {
       if (!data.teamId || !data.designationId) {
         throw new Error("Employee details missing");
@@ -67,18 +69,35 @@ export async function approveUser(data, hrUserId) {
         }
       });
     }
-    // AUDIT LOG
+
     await tx.auditLog.create({
       data: {
         entity: "USER",
         entityId: data.userId,
         action: "USER_APPROVED",
-        performedById: hrUserId // req.user.id
+        performedById: hrUserId
       }
     });
-  });
-}
 
+    return updatedUser;
+  });
+
+  /* ---------- SEND EMAIL AFTER TRANSACTION ---------- */
+
+  const token = createFirstLoginToken(user.id);
+
+  const link = `${process.env.FRONTEND_URL}/set-password?token=${token}`;
+
+  const html = accountApprovedTemplate(user.fullName, link);
+
+  await sendEmail({
+    to: user.email,
+    subject: "Your HRMS Account Has Been Approved",
+    html
+  });
+
+  return user;
+}
 
 export async function rejectUser(data, hrUserId) {
   console.log(data, hrUserId, "hrUserId")

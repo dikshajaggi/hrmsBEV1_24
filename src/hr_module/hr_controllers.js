@@ -7,6 +7,7 @@ export async function getPendingUsers(req, res) {
 
 
 export async function approveUser(req, res) {
+  console.log(req.body, req.user.id, "req.user.id")
   await HrService.approveUser(req.body, req.user.id);
   res.json({ message: "User approved successfully" });
 }

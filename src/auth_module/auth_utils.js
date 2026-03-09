@@ -1,7 +1,9 @@
 import crypto from "crypto"
 import prisma from "../../db/db.config.js";
+import jwt from "jsonwebtoken";
 
-export async function createRefreshToken(userId, res) {
+
+export const createRefreshToken = async(userId, res) => {
   const rawToken = crypto.randomBytes(64).toString("hex");
   const tokenHash = crypto
     .createHash("sha256")
@@ -24,4 +26,13 @@ console.log(Object.keys(prisma), "keys");
   });
 
   return rawToken;
+}
+
+
+export const createFirstLoginToken = (userId) => {
+  return jwt.sign(
+    { sub: userId, type: "FIRST_LOGIN" },
+    process.env.JWT_SECRET,
+    { expiresIn: "24h" }
+  );
 }

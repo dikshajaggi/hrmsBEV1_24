@@ -59,7 +59,18 @@ export async function loginUser(data, res) {
   const user = await prisma.user.findUnique({
     where: { username: data.username },
     include: {
-      roles: { include: { role: true } }
+      roles: { include: { role: true } },
+      employee: {
+        include: {
+          designation: true,
+          team: true,
+          manager: {
+            include: {
+              user: true
+            }
+          }
+        }
+      }
     }
   });
 
@@ -96,7 +107,19 @@ export async function loginUser(data, res) {
 
   return {
     accessToken,
-    expiresIn: ACCESS_TOKEN_EXPIRY
+    expiresIn: ACCESS_TOKEN_EXPIRY,
+    user: {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      fullName: user.fullName,
+      roles,
+
+      designation: user.employee?.designation?.name,
+      team: user.employee?.team?.name,
+
+      manager: user.employee?.manager?.user?.fullName
+    }
   };
 }
 
@@ -155,6 +178,8 @@ export async function refreshToken(req, res) {
    LOGOUT
 ========================= */
 export async function logoutUser(req, res) {
+  console.log(req.user, "logoutttt")
+  const user = req.user
   const rawToken = req.cookies?.refreshToken;
 
   if (rawToken) {
@@ -174,28 +199,38 @@ export async function logoutUser(req, res) {
     secure: true,
     sameSite: "strict"
   });
-}if (!user.passwordHash && user.isFirstLogin) {
-  return {
+if (!user.passwordHash && user.isFirstLogin) {
+  return ({
     requiresFirstLogin: true,
     userId: user.id
-  };
-}
+  })
+}}
 
 /* =========================
    ACTIVATE ACCOUNT
 ========================= */
-export async function completeFirstLogin(userId, newPassword) {
+export async function completeFirstLogin(token, newPassword) {
+
+  let payload;
+console.log("Incoming token:", token);
+  try {
+    payload = jwt.verify(token, JWT_SECRET);
+  } catch {
+    throw new Error("Invalid or expired link");
+  }
+
+  if (payload.type !== "FIRST_LOGIN") {
+    throw new Error("Invalid token");
+  }
+
+  const userId = payload.sub;
+
   const user = await prisma.user.findUnique({
     where: { id: userId }
   });
 
   if (!user) {
     throw new Error("User not found");
-  }
-
-  // 🔒 HARD BUSINESS RULES
-  if (user.status === UserStatus.REJECTED) {
-    throw new Error("Account has been rejected by HR");
   }
 
   if (user.status !== UserStatus.ACTIVE) {
@@ -206,6 +241,10 @@ export async function completeFirstLogin(userId, newPassword) {
     throw new Error("First login already completed");
   }
 
+  if (!newPassword || newPassword.length < 8) {
+    throw new Error("Password must be at least 8 characters");
+  }
+
   const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
   await prisma.user.update({
@@ -213,9 +252,10 @@ export async function completeFirstLogin(userId, newPassword) {
     data: {
       passwordHash,
       isFirstLogin: false
-      // ❌ do NOT change isActive here
     }
   });
+
+  return { success: true };
 }
 
 

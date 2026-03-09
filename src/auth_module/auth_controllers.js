@@ -25,8 +25,9 @@ export async function logout(req, res) {
 
 
 export async function activateAccount(req, res) {
+  console.log(req.body, "check check")
   await AuthService.completeFirstLogin(
-    req.body.id,
+    req.body.token,
     req.body.newPassword
   );
   res.json({ message: "Password updated successfully" });
