@@ -160,9 +160,9 @@ async function getAdminDashboard(user) {
   const [
     totalEmployees,
     todayAttendance,
-    totalMale,
-    totalFemale,
-    totalOther,
+    // totalMale,
+    // totalFemale,
+    // totalOther,
     teamStats,
     teams,
     monthlyAttendance,
@@ -187,17 +187,17 @@ async function getAdminDashboard(user) {
     }),
 
     // Gender distribution
-    prisma.employee.count({
-      where: { status: "ACTIVE", gender: "MALE" }
-    }),
+    // prisma.employee.count({
+    //   where: { status: "ACTIVE", gender: "MALE" }
+    // }),
 
-    prisma.employee.count({
-      where: { status: "ACTIVE", gender: "FEMALE" }
-    }),
+    // prisma.employee.count({
+    //   where: { status: "ACTIVE", gender: "FEMALE" }
+    // }),
 
-    prisma.employee.count({
-      where: { status: "ACTIVE", gender: "OTHER" }
-    }),
+    // prisma.employee.count({
+    //   where: { status: "ACTIVE", gender: "OTHER" }
+    // }),
 
     // Team grouping
     prisma.employee.groupBy({
@@ -254,7 +254,7 @@ async function getAdminDashboard(user) {
   const accounted =
     present + wfh + leaveFull + sickFull + firstHalf + secondHalf + compOff;
 
-  const absent = Math.max(totalEmployees - accounted, 0);
+  // const absent = Math.max(totalEmployees - accounted, 0);
 
   // =========================
   // Team Summary
@@ -309,6 +309,12 @@ async function getAdminDashboard(user) {
     }
   });
 
+  const pendingUsers = await prisma.user.count({
+    where: {
+      status: "PENDING_APPROVAL"
+    }
+  });
+
   // =========================
   // Final Response
   // =========================
@@ -325,15 +331,14 @@ async function getAdminDashboard(user) {
       firstHalf,
       secondHalf,
       compOff,
-      absent
     },
 
-    employeeDistribution: {
-      totalEmployees,
-      totalMale,
-      totalFemale,
-      totalOther
-    },
+    // employeeDistribution: {
+    //   totalEmployees,
+    //   totalMale,
+    //   totalFemale,
+    //   totalOther
+    // },
 
     leaveBalanceAlerts: {
       lowCasualLeave,
@@ -342,7 +347,11 @@ async function getAdminDashboard(user) {
 
     teamSummary,
 
-    monthlyGraph
+    monthlyGraph,
+
+    notifications: {
+      pendingApprovals: pendingUsers
+    }
   };
 }
 
