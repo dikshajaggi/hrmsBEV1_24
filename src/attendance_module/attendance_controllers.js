@@ -4,13 +4,16 @@ import { Action } from "../rbac_module/rbac_actions.js";
 import { Scope } from "../rbac_module/rbac_scopes.js";
 
 export async function getSheet(req, res) {
+  console.log(req.user.roles, "USER ROLES");
   if (!can(req.user.roles, Action.VIEW_ATTENDANCE, Scope.ORG)) {
     return res.status(403).json({ message: "Forbidden" });
   }
 
   const { month } = req.query;
+  const page = Number(req.query.page) || 1;
+  const limit = Number(req.query.limit) || 50;
 
-  const sheet = await AttendanceService.getAttendanceSheet(month);
+  const sheet = await AttendanceService.getAttendanceSheet(month, page, limit);
 
   res.json(sheet);
 }
@@ -36,4 +39,18 @@ export async function removeAttendance(req, res) {
   await AttendanceService.removeAttendance(req.body, req.user.id);
 
   res.json({ message: "Attendance removed" });
+}
+
+
+export async function bulkMarkAttendance(req, res) {
+  if (!can(req.user.roles, Action.MARK_ATTENDANCE, Scope.ORG)) {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+
+  const result = await AttendanceService.bulkMarkAttendance(
+    req.body,
+    req.user.id
+  );
+
+  res.json(result);
 }

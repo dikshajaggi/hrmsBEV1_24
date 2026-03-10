@@ -7,6 +7,8 @@ import weeklyOffRoutes from "./src/weeklyoff_module/weeklyoff_routes.js"
 import attendanceRoutes from "./src/attendance_module/attendance_routes.js"
 import profileRoutes from "./src/profile_module/profile_routes.js"
 import dashboardRoutes from "./src/dashboard_module/dashboard_routes.js"
+import managerRoutes from "./src/manager_module/manager_routes.js"
+import orgRoutes from "./src/organisation_module/org_routes.js"
 
 
 const router = express.Router()
@@ -19,6 +21,7 @@ router.use("/api/weeklyOff", weeklyOffRoutes)
 router.use("/api/attendance", attendanceRoutes)
 router.use("/api/profile", profileRoutes)
 router.use("/api/dashboard", dashboardRoutes)
-
+router.use("/api/manager", managerRoutes)
+router.use("/api/org", orgRoutes)
 
 export default router

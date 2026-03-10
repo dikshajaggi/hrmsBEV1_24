@@ -5,8 +5,8 @@ export function can(
   action,
   scope
 ) {
-  // ADMIN shortcut
-  if (userRoles.includes("ADMIN")) return true;
+  // HR shortcut
+  if (userRoles.includes("HR")) return true;
 
   return userRoles.some(role => {
     const rules = RBAC_POLICY[role];

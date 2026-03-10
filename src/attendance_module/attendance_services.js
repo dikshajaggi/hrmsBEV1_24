@@ -147,10 +147,8 @@ export async function getAttendanceSheet(month, page = 1, limit = 50) {
       if (!status) {
         const rules = weeklyMap.get(current.day());
         if (rules) {
-          const weekNumber = Math.ceil(current.date() / 7);
-          const isOff = rules.some(weeks =>
-            weeks.includes(weekNumber)
-          );
+          const weekNumber = Math.floor((current.date() - 1) / 7) + 1;
+          const isOff = rules.some(weeks => weeks.includes(weekNumber));
           if (isOff) status = AttendanceStatus.WEEKLY_OFF;
         }
       }
@@ -177,11 +175,12 @@ export async function getAttendanceSheet(month, page = 1, limit = 50) {
       }
 
       if (!status) {
-        status = AttendanceStatus.PRESENT;
+        status = null
       }
 
       row.attendance[dateStr] = status;
 
+      // ===== Summary Logic =====
       // ===== Summary Logic =====
 
       const isWorkingDay =
@@ -192,6 +191,11 @@ export async function getAttendanceSheet(month, page = 1, limit = 50) {
 
       if (status === AttendanceStatus.PRESENT) {
         row.summary.totalPresentDays++;
+      }
+
+      // blank attendance → absent
+      if (status === null && isWorkingDay) {
+        row.summary.totalAbsence++;
       }
 
       if (status === AttendanceStatus.LEAVE_FULL) {
@@ -223,6 +227,7 @@ export async function getAttendanceSheet(month, page = 1, limit = 50) {
       if (status === AttendanceStatus.WFH) {
         row.summary.totalWFH++;
       }
+      
 
       current = current.add(1, "day");
     }
@@ -352,5 +357,87 @@ export async function removeAttendance(data, performedById) {
     });
 
     return { message: "Attendance removed" };
+  });
+}
+
+export async function bulkMarkAttendance(data, markedById) {
+  const { employeeIds, date, status } = data;
+
+  if (!employeeIds?.length || !date || !status) {
+    throw new Error("Missing required fields");
+  }
+
+  const targetDate = dayjs.utc(date + "T00:00:00Z");
+
+  if (targetDate.isAfter(dayjs().utc(), "day")) {
+    throw new Error("Cannot mark future attendance");
+  }
+
+  if (!Object.values(AttendanceStatus).includes(status)) {
+    throw new Error("Invalid attendance status");
+  }
+
+  return prisma.$transaction(async (tx) => {
+
+    // validate employees
+    const employees = await tx.employee.findMany({
+      where: {
+        id: { in: employeeIds },
+        status: "ACTIVE"
+      },
+      select: { id: true }
+    });
+
+    if (employees.length !== employeeIds.length) {
+      throw new Error("Some employees are invalid");
+    }
+
+    // check holiday
+    const holiday = await tx.holiday.findFirst({
+      where: {
+        date: targetDate.toDate(),
+        isActive: true
+      }
+    });
+
+    if (holiday) {
+      throw new Error("Cannot mark attendance on holiday");
+    }
+
+    // prepare upsert operations
+    const operations = employees.map(emp =>
+      tx.attendance.upsert({
+        where: {
+          employeeId_date: {
+            employeeId: emp.id,
+            date: targetDate.toDate()
+          }
+        },
+        update: {
+          status,
+          markedById
+        },
+        create: {
+          employeeId: emp.id,
+          date: targetDate.toDate(),
+          status,
+          markedById
+        }
+      })
+    );
+
+    const results = await Promise.all(operations);
+
+    // audit logs
+    await tx.auditLog.createMany({
+      data: results.map(a => ({
+        entity: "ATTENDANCE",
+        entityId: a.id,
+        action: "UPSERT",
+        performedById: markedById
+      }))
+    });
+
+    return results;
   });
 }
