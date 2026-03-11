@@ -22,18 +22,56 @@ export async function getDashboardData(user) {
 
 
 async function getEmployeeDashboard(user) {
-  const employeeId = user.employeeId;
+  const employee = await prisma.employee.findUnique({
+    where: { userId: user.id },
+    select: { id: true }
+  });
+
+  const employeeId = employee?.id;
+  if (!employeeId) {
+    throw new Error("Employee record not found for user");
+  }
   const today = dayjs().utc();
-  const startOfMonth = today.startOf("month");
-  const endOfMonth = today.endOf("month");
+  const prevMonth = today.subtract(1, "month");
+  const startOfMonth = prevMonth.startOf("month");
+  const endOfMonth = prevMonth.endOf("month");
 
   const [
+    leaveTypes,
+    attendanceRecords,
+    leaveStats,
     balance,
     attendanceCount,
     pendingLeaves,
     recentLeaves,
     upcomingHolidays
   ] = await Promise.all([
+
+    prisma.leaveType.findMany(),
+
+    prisma.attendance.findMany({
+      where: {
+        employeeId,
+        date: {
+          gte: startOfMonth.toDate(),
+          lte: endOfMonth.toDate()
+        }
+      },
+      select: {
+        date: true,
+        status: true
+      },
+      orderBy: { date: "asc" }
+    }),
+
+    prisma.leaveRequest.groupBy({
+      by: ["leaveTypeId"],
+      where: {
+        employeeId,
+        status: LeaveStatus.HR_APPROVED
+      },
+      _count: true
+    }),
 
     prisma.leaveBalance.findUnique({
       where: {
@@ -70,29 +108,81 @@ async function getEmployeeDashboard(user) {
         isActive: true
       },
       orderBy: { date: "asc" }
-    })
-  ]);
+      })
+    ]);
   
+    const attendanceTrend = attendanceRecords.map(a => ({
+      date: dayjs(a.date).format("YYYY-MM-DD"),
+      present: a.status === AttendanceStatus.PRESENT ? 1 : 0
+    }));
 
-  return {
-    role: "EMPLOYEE",
-    leaveSummary: {
-      totalCL: balance?.casualTotal || 0,
-      usedCL: balance?.casualUsed || 0,
-      remainingCL: (balance?.casualTotal || 0) - (balance?.casualUsed || 0),
-      totalSL: balance?.sickTotal || 0,
-      usedSL: balance?.sickUsed || 0,
-      remainingSL: (balance?.sickTotal || 0) - (balance?.sickUsed || 0),
-    },
-    attendanceSummary: {
-      totalMarkedDays: attendanceCount
-    },
-    leaveStatus: {
-      pending: pendingLeaves,
-      recent: recentLeaves
-    },
-    upcomingHolidays
-  };
+    const present = attendanceRecords.filter(
+    a => a.status === AttendanceStatus.PRESENT
+    ).length;
+
+    const wfh = attendanceRecords.filter(
+      a => a.status === AttendanceStatus.WFH
+    ).length;
+
+    const leave =
+    attendanceRecords.filter(a =>
+      [
+        AttendanceStatus.LEAVE_FULL,
+        AttendanceStatus.LEAVE_FIRST_HALF,
+        AttendanceStatus.LEAVE_SECOND_HALF
+      ].includes(a.status)
+    ).length;
+
+    const leaveDistribution = leaveStats.map(stat => ({
+      type: leaveTypes.find(l => l.id === stat.leaveTypeId)?.code,
+      count: stat._count
+    }));
+
+    const monthLabel = prevMonth.format("MMMM YYYY");
+    const sickLeave = attendanceRecords.filter(a =>
+      [
+        AttendanceStatus.SICK_FULL,
+        AttendanceStatus.SICK_FIRST_HALF,
+        AttendanceStatus.SICK_SECOND_HALF
+      ].includes(a.status)
+    ).length;
+
+    console.log(balance, "leave balanc")
+
+    return {
+      role: "EMPLOYEE",
+
+       month: monthLabel,
+
+      leaveSummary: {
+        totalCL: balance?.casualTotal || 0,
+        usedCL: balance?.casualUsed || 0,
+        remainingCL: (balance?.casualTotal || 0) - (balance?.casualUsed || 0),
+        totalSL: balance?.sickTotal || 0,
+        usedSL: balance?.sickUsed || 0,
+        remainingSL: (balance?.sickTotal || 0) - (balance?.sickUsed || 0),
+      },
+
+      attendanceSummary: {
+        month: monthLabel,
+        totalWorkingDays: attendanceCount,
+        present,
+        wfh,
+        leave,
+        sickLeave
+      },
+
+      attendanceTrend,
+
+      leaveDistribution,
+
+      leaveStatus: {
+        pending: pendingLeaves,
+        recent: recentLeaves
+      },
+
+      upcomingHolidays
+    };
 }
 
 
