@@ -1,18 +1,19 @@
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcrypt";
 
 const prisma = new PrismaClient();
 
-async function main() {
+let empCounter = 1001;
 
+async function main() {
   console.log("🌱 Seeding database...");
 
   // ==============================
   // ROLES
   // ==============================
-
-  const roles = await prisma.role.createMany({
+  await prisma.role.createMany({
     data: [
-      { code: "ADMIN", name: "Admin" },
+      { code: "HR", name: "HR" },
       { code: "MANAGER", name: "Manager" },
       { code: "EMPLOYEE", name: "Employee" }
     ],
@@ -22,41 +23,33 @@ async function main() {
   // ==============================
   // TEAMS
   // ==============================
-
   await prisma.team.createMany({
-    data: [
-      { name: "HR" },
-      { name: "AI" },
-      { name: "Finance" },
-      { name: "Design" }
-    ],
+    data: ["HR", "AI", "Finance", "Design"].map(name => ({ name })),
     skipDuplicates: true
   });
 
   // ==============================
   // DESIGNATIONS
   // ==============================
-
   await prisma.designation.createMany({
     data: [
-      { name: "Assistant Vice President" },
-      { name: "DGM HR and Finance" },
-      { name: "Assistant Design Engineer" },
-      { name: "Assistant Finance Manager" },
-      { name: "Employee" },
-      { name: "Software Developer" },
-      { name: "UI/UX Designer" },
-      { name: "AI/ML Engineer" },
-      { name: "Backend Engineer" },
-      { name: "Data Pipeline Engineer" }
-    ],
+      "Assistant Vice President",
+      "DGM HR and Finance",
+      "Assistant Design Engineer",
+      "Assistant Finance Manager",
+      "Employee",
+      "Software Developer",
+      "UI/UX Designer",
+      "AI/ML Engineer",
+      "Backend Engineer",
+      "Data Pipeline Engineer"
+    ].map(name => ({ name })),
     skipDuplicates: true
   });
 
   // ==============================
   // LEAVE TYPES
   // ==============================
-
   await prisma.leaveType.createMany({
     data: [
       { code: "CL", name: "Casual Leave" },
@@ -69,10 +62,11 @@ async function main() {
   // ==============================
   // WEEKLY OFF RULE
   // ==============================
-
-  await prisma.weeklyOffRule.create({
-    data: {
-      dayOfWeek: 6, // Saturday
+  await prisma.weeklyOffRule.upsert({
+    where: { dayOfWeek: 6 },
+    update: {},
+    create: {
+      dayOfWeek: 6,
       weekNumbers: [2, 4]
     }
   });
@@ -80,257 +74,152 @@ async function main() {
   // ==============================
   // HOLIDAYS
   // ==============================
-
   const holidays = [
-    { date: new Date("2026-01-26"), name: "Republic Day" },
-    { date: new Date("2026-03-04"), name: "Holi" },
-    { date: new Date("2026-03-26"), name: "Ram Navmi" },
-    { date: new Date("2026-03-31"), name: "Mahavir Jayanti" },
-    { date: new Date("2026-04-03"), name: "Good Friday" },
-    { date: new Date("2026-08-15"), name: "Independence Day" },
-    { date: new Date("2026-10-02"), name: "Gandhi Jayanti" },
-    { date: new Date("2026-12-25"), name: "Christmas" }
-  ];
+    "2026-01-26",
+    "2026-03-04",
+    "2026-03-26",
+    "2026-03-31",
+    "2026-04-03",
+    "2026-08-15",
+    "2026-10-02",
+    "2026-12-25"
+  ].map(date => ({
+    date: new Date(date),
+    name: new Date(date).toDateString()
+  }));
 
-  for (const holiday of holidays) {
-    await prisma.holiday.create({ data: holiday });
-  }
+  await prisma.holiday.createMany({
+    data: holidays,
+    skipDuplicates: true
+  });
 
   // ==============================
   // FETCH IDS
   // ==============================
-
   const teams = await prisma.team.findMany();
   const designations = await prisma.designation.findMany();
-  const rolesData = await prisma.role.findMany();
+  const roles = await prisma.role.findMany();
 
-  const getTeam = name => teams.find(t => t.name === name).id;
-  const getDesg = name => designations.find(d => d.name === name).id;
-  const getRole = code => rolesData.find(r => r.code === code).id;
+  const getTeam = name => teams.find(t => t.name === name)?.id;
+  const getDesg = name => designations.find(d => d.name === name)?.id;
+  const getRole = code => roles.find(r => r.code === code)?.id;
+
+  const DEFAULT_PASSWORD = "Password@123";
+  const hashedPassword = await bcrypt.hash(DEFAULT_PASSWORD, 10);
 
   // ==============================
   // USERS
   // ==============================
-
   const usersData = [
-    {
-      username: "mona",
-      fullName: "Mona Savio Pereira",
-      email: "mona@company.com",
-      role: "ADMIN",
-      team: "HR",
-      desg: "DGM HR and Finance"
-    },
-    {
-      username: "niladri",
-      fullName: "Niladri Bose",
-      email: "niladri@company.com",
-      role: "MANAGER",
-      team: "AI",
-      desg: "Assistant Vice President"
-    },
-    {
-      username: "nischal",
-      fullName: "Nischal Ahuja",
-      email: "nischal@company.com",
-      role: "EMPLOYEE",
-      team: "Finance",
-      desg: "Assistant Finance Manager"
-    },
-    {
-      username: "divya",
-      fullName: "Divya Verma",
-      email: "divya@company.com",
-      role: "EMPLOYEE",
-      team: "Finance",
-      desg: "Employee"
-    },
-    {
-      username: "himanshu",
-      fullName: "Himanshu Sharma",
-      email: "himanshu@company.com",
-      role: "EMPLOYEE",
-      team: "Design",
-      desg: "Assistant Design Engineer"
-    },
-    {
-      username: "diksha",
-      fullName: "Diksha Jaggi",
-      email: "diksha@company.com",
-      role: "EMPLOYEE",
-      team: "AI",
-      desg: "Software Developer"
-    },
-    {
-      username: "uttam",
-      fullName: "Uttam Rana",
-      email: "uttam@company.com",
-      role: "EMPLOYEE",
-      team: "AI",
-      desg: "Software Developer"
-    },
-    {
-      username: "shubham1",
-      fullName: "Shubham Sharma",
-      email: "shubham.sharma@company.com",
-      role: "EMPLOYEE",
-      team: "AI",
-      desg: "Data Pipeline Engineer"
-    },
-    {
-      username: "shubham2",
-      fullName: "Shubham Singh",
-      email: "shubham.singh@company.com",
-      role: "EMPLOYEE",
-      team: "AI",
-      desg: "Backend Engineer"
-    },
-    {
-      username: "shridev",
-      fullName: "Shridev Cherukat",
-      email: "shridev@company.com",
-      role: "EMPLOYEE",
-      team: "AI",
-      desg: "Software Developer"
-    },
-    {
-      username: "steve",
-      fullName: "Steve Jacob Thomas",
-      email: "steve@company.com",
-      role: "EMPLOYEE",
-      team: "AI",
-      desg: "AI/ML Engineer"
-    },
-    {
-      username: "pranay",
-      fullName: "Pranay Rohilla",
-      email: "pranay@company.com",
-      role: "EMPLOYEE",
-      team: "AI",
-      desg: "UI/UX Designer"
-    }
+    ["mona","Mona Savio Pereira","mona@company.com","HR","HR","DGM HR and Finance"],
+    ["niladri","Niladri Bose","niladri@company.com","MANAGER","AI","Assistant Vice President"],
+    ["diksha","Diksha Jaggi","diksha@company.com","EMPLOYEE","AI","Software Developer"],
+    ["uttam","Uttam Rana","uttam@company.com","EMPLOYEE","AI","Software Developer"]
   ];
 
   const createdUsers = [];
 
-  for (const u of usersData) {
+  for (const [username, fullName, email, role, team, desg] of usersData) {
 
-    const user = await prisma.user.create({
-      data: {
-        username: u.username,
-        fullName: u.fullName,
-        email: u.email,
-        passwordHash: "demo-password",
+    const user = await prisma.user.upsert({
+      where: { email },
+      update: {},
+      create: {
+        username,
+        fullName,
+        email,
+        passwordHash: hashedPassword,
         status: "ACTIVE",
         isActive: true
       }
     });
 
-    await prisma.userRole.create({
-      data: {
+    await prisma.userRole.upsert({
+      where: {
+        userId_roleId: {
+          userId: user.id,
+          roleId: getRole(role)
+        }
+      },
+      update: {},
+      create: {
         userId: user.id,
-        roleId: getRole(u.role)
+        roleId: getRole(role)
       }
     });
 
-    const employee = await prisma.employee.create({
-      data: {
+    const employee = await prisma.employee.upsert({
+      where: { userId: user.id },
+      update: {},
+      create: {
         userId: user.id,
-        teamId: getTeam(u.team),
-        designationId: getDesg(u.desg)
+        empCode: String(empCounter++),
+        teamId: getTeam(team),
+        designationId: getDesg(desg)
       }
     });
 
-    await prisma.leaveBalance.create({
-      data: {
+    await prisma.leaveBalance.upsert({
+      where: {
+        employeeId_year: {
+          employeeId: employee.id,
+          year: 2026
+        }
+      },
+      update: {},
+      create: {
         employeeId: employee.id,
         year: 2026
       }
     });
 
-    createdUsers.push({ user, employee, role: u.role });
+    createdUsers.push({ user, employee, role });
   }
+
+  // ==============================
+  // ATTENDANCE (FEB 2026)
+  // ==============================
+  const employees = await prisma.employee.findMany();
+  const holidayDates = holidays.map(h => h.date.toISOString().split("T")[0]);
+
+  const attendanceData = [];
+
+  for (let d = new Date("2026-02-01"); d <= new Date("2026-02-28"); d.setDate(d.getDate() + 1)) {
+
+    const date = new Date(d);
+    const iso = date.toISOString().split("T")[0];
+    const day = date.getDay();
+    const week = Math.ceil(date.getDate() / 7);
+
+    for (const emp of employees) {
+
+      let status = "PRESENT";
+
+      if (holidayDates.includes(iso)) status = "HOLIDAY";
+      else if (day === 0) status = "WEEKLY_OFF";
+      else if (day === 6 && [2,4].includes(week)) status = "WEEKLY_OFF";
+      else {
+        const arr = ["PRESENT","WFH","LEAVE_FULL","SICK_FULL"];
+        status = arr[Math.floor(Math.random() * arr.length)];
+      }
+
+      attendanceData.push({
+        employeeId: emp.id,
+        date,
+        status,
+        markedById: createdUsers[0].user.id
+      });
+    }
+  }
+
+  await prisma.attendance.createMany({
+    data: attendanceData,
+    skipDuplicates: true
+  });
 
   console.log("✅ Seed completed successfully");
 }
 
-function randomAttendance() {
-  const statuses =  ["PRESENT","SICK_FULL", "LEAVE_FULL"]
-
-  return statuses[Math.floor(Math.random() * statuses.length)];
-}
-
 main()
-  .catch(e => {
-    console.error(e);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
-
-  // ==============================
-// GENERATE FEBRUARY ATTENDANCE
-// ==============================
-
-console.log("Generating February attendance...");
-
-const employees = await prisma.employee.findMany();
-
-const holidays = await prisma.holiday.findMany();
-const holidayDates = holidays.map(h =>
-  new Date(h.date).toISOString().split("T")[0]
-);
-
-const start = new Date("2026-02-01");
-const end = new Date("2026-02-28");
-
-const attendanceData = [];
-
-for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-
-  const date = new Date(d);
-  const isoDate = date.toISOString().split("T")[0];
-  const day = date.getDay(); // 0 = Sunday
-
-  const weekNumber = Math.ceil(date.getDate() / 7);
-
-  for (const emp of employees) {
-
-    let status;
-
-    // Holiday
-    if (holidayDates.includes(isoDate)) {
-      status = "HOLIDAY";
-    }
-
-    // Sunday
-    else if (day === 0) {
-      status = "WEEKLY_OFF";
-    }
-
-    // 2nd & 4th Saturday
-    else if (day === 6 && (weekNumber === 2 || weekNumber === 4)) {
-      status = "WEEKLY_OFF";
-    }
-
-    // Random working status
-    else {
-      status = randomAttendance();
-    }
-
-    attendanceData.push({
-      employeeId: emp.id,
-      date: new Date(date),
-      status,
-      markedById: 1 // HR user
-    });
-
-  }
-}
-
-await prisma.attendance.createMany({
-  data: attendanceData,
-  skipDuplicates: true
-});
-
-console.log("✅ February attendance generated");
+  .catch(console.error)
+  .finally(() => prisma.$disconnect());

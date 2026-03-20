@@ -152,6 +152,7 @@ model User {
   refreshTokens      RefreshToken[]
   markedAttendances  Attendance[]   @relation("MarkedAttendance")
   auditLogs          AuditLog[]
+  notification       Notification[]
 }
 
 model UserRole {
@@ -185,13 +186,19 @@ model RefreshToken {
 // =====================================
 
 model Employee {
-  id            Int      @id @default(autoincrement())
-  userId        Int      @unique
+  id            Int @id @default(autoincrement())
+
+  empCode       String @unique
+
+  userId        Int @unique
   designationId Int
   teamId        Int
   managerId     Int?
-  status        EmployeeStatus @default(ACTIVE)
-  
+
+  dateOfJoining DateTime?
+  resignDate    DateTime?
+
+  status EmployeeStatus @default(ACTIVE)
 
   createdAt DateTime @default(now())
 
@@ -202,9 +209,80 @@ model Employee {
   manager   Employee?  @relation("ManagerRelation", fields: [managerId], references: [id])
   reportees Employee[] @relation("ManagerRelation")
 
+  personalDetail      EmployeePersonalDetail?
+  document            EmployeeDocument?
+  bankDetail          EmployeeBankDetail?
+  emergencyContact    EmployeeEmergencyContact?
+  professionalDetail  EmployeeProfessionalDetail?
+
   attendance Attendance[]
   leaves     LeaveRequest[]
   leaveBalances LeaveBalance[]
+}
+
+model EmployeePersonalDetail {
+  id Int @id @default(autoincrement())
+
+  employeeId Int @unique
+
+  dateOfBirth DateTime?
+  fatherName String?
+  spouseName String?
+  mobileNumber String?
+  address String?
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+}
+
+model EmployeeDocument {
+  id Int @id @default(autoincrement())
+
+  employeeId Int @unique
+
+  aadharNumber String?
+  panNumber String?
+  uanNumber String?
+  epfNumber String?
+  esicNumber String?
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+}
+
+model EmployeeBankDetail {
+  id Int @id @default(autoincrement())
+
+  employeeId Int @unique
+
+  bankAccountNumber String?
+  ifscCode String?
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+}
+
+model EmployeeEmergencyContact {
+  id Int @id @default(autoincrement())
+
+  employeeId Int @unique
+
+  name String?
+  relationship String?
+  mobileNumber String?
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+}
+
+model EmployeeProfessionalDetail {
+  id Int @id @default(autoincrement())
+
+  employeeId Int @unique
+
+  qualification String?
+  experience String?
+
+  insuranceTaken Boolean @default(false)
+  insuranceValidity String?
+
+  employee Employee @relation(fields: [employeeId], references: [id])
 }
 
 // =====================================
@@ -275,12 +353,46 @@ model LeaveBalance {
 // =====================================
 
 model AuditLog {
-  id            Int      @id @default(autoincrement())
-  entity        String   // "LEAVE", "ATTENDANCE"
-  entityId      Int
-  action        String   // CREATED, APPROVED, REJECTED
-  performedById Int
-  createdAt     DateTime @default(now())
+  id Int @id @default(autoincrement())
 
-  performedBy User @relation(fields: [performedById], references: [id])
+  entity String
+  entityId Int
+
+  action String
+  changes Json?
+  performedById Int?
+  createdAt DateTime @default(now())
+  
+  performedBy User? @relation(fields: [performedById], references: [id])
+}
+
+// =====================================
+// Notification 
+// =====================================
+
+enum NotificationType {
+  BULK_UPLOAD
+  FIRST_LOGIN
+  USER_APPROVED
+  LEAVE_APPROVED
+  PENDING_APPROVAL
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  type      NotificationType
+  title     String
+  message   String
+  metadata  Json?
+
+  userId    Int?      // null = broadcast
+  role      String?   // HR / MANAGER / EMPLOYEE
+
+  isRead    Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
 }

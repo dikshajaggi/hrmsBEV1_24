@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import prisma from "../../db/db.config.js";
 import { createRefreshToken } from "./auth_utils.js";
-import { UserStatus } from "@prisma/client";
+import { UserStatus, NotificationType } from "@prisma/client";
 
 const SALT_ROUNDS = 12;
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -226,7 +226,19 @@ console.log("Incoming token:", token);
   const userId = payload.sub;
 
   const user = await prisma.user.findUnique({
-    where: { id: userId }
+    where: { id: userId },
+    include: {
+      employee: {
+        include: {
+          team: true,
+          manager: {
+            include: {
+              user: true
+            }
+          }
+        }
+      }
+    }
   });
 
   if (!user) {
@@ -254,6 +266,28 @@ console.log("Incoming token:", token);
       isFirstLogin: false
     }
   });
+
+   await createNotification({
+    type: NotificationType.FIRST_LOGIN,
+    title: "New Employee Onboarded",
+    message: `${user.fullName} completed first login`,
+    role: "ADMIN",
+    metadata: {
+      userId: user.id,
+      employeeId: user.employee?.id,
+      team: user.employee?.team?.name
+    }
+  });
+
+  // 🔥 OPTIONAL: Notify Manager
+  if (user.employee?.manager?.userId) {
+    await createNotification({
+      type: NotificationType.FIRST_LOGIN,
+      title: "Team Member Activated",
+      message: `${user.fullName} from your team is now active`,
+      userId: user.employee.manager.userId
+    });
+  }
 
   return { success: true };
 }

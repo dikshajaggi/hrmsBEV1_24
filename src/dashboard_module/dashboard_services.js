@@ -439,9 +439,10 @@ async function getAdminDashboard(user) {
 
     monthlyGraph,
 
-    notifications: {
-      pendingApprovals: pendingUsers
-    }
+    notifications: await prisma.notification.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 10
+    })
   };
 }
 
